@@ -135,8 +135,7 @@ class HCDevice:
 		if remoteControlStartAllowed is None or not remoteControlStartAllowed: #allow if none, if device has no remoteControlStartAllowed feature (or a different uid for it than used to detect remoteControlStartAllowed)
 			#since this is not watched by the device itself
 			raise Exception(f"{self.name}. Program not started. Remote access ist not activated on device. Check and change 'RemoteControlStartAllowed'.")
-		
-		print("------------------test2----")
+	
 		return data
 
 	# Test the feature of an appliance agains a data object
@@ -244,7 +243,6 @@ class HCDevice:
 #				print("REMINDER WIEDER test_and_reformat_feature AKTIVIEREN")
 #				msg["data"] = [data]
 				if resource == "/ro/activeProgram":
-					print("------------------test1----")
 					msg["data"] = [self.test_and_reformat_program(data)]
 				elif resource == "/ro/values":
 					msg["data"] = [self.test_and_reformat_feature(data)]
@@ -348,7 +346,6 @@ class HCDevice:
 				if '517' in values:#uid for BSH.Common.Status.RemoteControlStartAllowed (at least for dishwasher)
 					global remoteControlStartAllowed
 					remoteControlStartAllowed = values['517'] 
-					print("----------------------"+str(remoteControlStartAllowed)	)
 				
 			elif resource == "/ci/registeredDevices":
 				# we don't care
