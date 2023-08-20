@@ -1,4 +1,4 @@
-#!/etc/openhab/scripts/hcpy/hcpy-env/bin/python3
+#!/usr/bin/env python3
 # Contact Bosh-Siemens Home Connect devices
 # and connect their messages to the mqtt server
 # old shebang ohn virtual env: #!/usr/bin/env python3
