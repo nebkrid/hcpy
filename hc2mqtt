@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # Contact Bosh-Siemens Home Connect devices
 # and connect their messages to the mqtt server
-# old shebang ohn virtual env: #!/usr/bin/env python3
 import json
 import sys
 import time
@@ -19,29 +18,33 @@ debugVerbose = False
 
 @click.command()
 @click.argument("config_file")
-@click.option("-h", "--mqtt_host", default="localhost")
-@click.option("-p", "--mqtt_prefix", default="homie/") # in order to be autodetectable by homie implementations
-@click.option("--mqtt_port", default=1883, type=int)
-@click.option("--mqtt_username")
-@click.option("--mqtt_password")
 @click.option("--mqtt_ssl", is_flag=True)
 @click.option("--mqtt_cafile")
 @click.option("--mqtt_certfile")
 @click.option("--mqtt_keyfile")
 @click.option("--onoff_bool", is_flag=True)
-@click.option("--publish_as_json", is_flag=True)
 @click.option("--log_debug", is_flag=True)
-def hc2mqtt(config_file: str, mqtt_host: str, mqtt_prefix: str, mqtt_port: int, mqtt_username: str,
-			mqtt_password: str, mqtt_ssl: bool, mqtt_cafile: str, mqtt_certfile: str, mqtt_keyfile: str, 
-			onoff_bool: bool, publish_as_json: bool, log_debug: bool):
-	click.echo(f"Hello {config_file} {mqtt_host} {mqtt_prefix} {mqtt_port} {mqtt_username} {mqtt_password} "
-			   f"{mqtt_ssl} {mqtt_cafile} {mqtt_certfile} {mqtt_keyfile} {onoff_bool} {publish_as_json} {log_debug}")
+def hc2mqtt(config_file: str,  mqtt_ssl: bool, mqtt_cafile: str, mqtt_certfile: str, mqtt_keyfile: str, 
+			onoff_bool: bool, log_debug: bool):
+	click.echo(f"Hello {config_file} {mqtt_ssl} {mqtt_cafile} {mqtt_certfile} {mqtt_keyfile} {onoff_bool} {log_debug}")
 	global debugVerbose
 	debugVerbose = log_debug
 	
 	with open(config_file, "r") as f:
 		devices = json.load(f)
 
+	mqtt_conf = devices[0]
+	if mqtt_conf["name"] != "MQTT_CONF":
+		print("ERROR", "The first entry in conf file has to be the MQTT configuration settings. May be manually added. See documentation.")
+	else:
+		mqtt_host = mqtt_conf["host"]
+		mqtt_port = mqtt_conf["port"]
+		mqtt_prefix = mqtt_conf["topic_prefix"]
+		mqtt_username = mqtt_conf["username"]
+		mqtt_password = mqtt_conf["password"]
+	
+	if debugVerbose: print(f"Recieved MQTT configuration: {mqtt_host} {mqtt_port} {mqtt_prefix} {'SET' if mqtt_username else 'EMPTY'} {'SET' if mqtt_password else 'EMPTY'} ")
+	
 	client = mqtt.Client()
 
 	if mqtt_username and mqtt_password:
@@ -56,9 +59,13 @@ def hc2mqtt(config_file: str, mqtt_host: str, mqtt_prefix: str, mqtt_port: int, 
 	client.connect(host=mqtt_host, port=mqtt_port, keepalive=70)
 
 	for device in devices:
+		print(device["name"])
+		if device["name"] == "MQTT_CONF":
+			#This is the first entry in conf file to configure MQTT client settings. Not a device. Skip.
+			continue
 		mqtt_topic = mqtt_prefix + device["name"]
 		print(now(), f"topic: {mqtt_topic}")
-		thread = Thread(target=client_connect, args=(client, device, mqtt_topic, onoff_bool, publish_as_json))
+		thread = Thread(target=client_connect, args=(client, device, mqtt_topic, onoff_bool))
 		thread.start()
 
 	client.loop_forever()
@@ -111,7 +118,7 @@ def is_feature_settable(feature):
 			)
 
 
-def client_connect(client, device, mqtt_topic, onoff_bool, publish_as_json):
+def client_connect(client, device, mqtt_topic, onoff_bool):
 	def on_message(client, userdata, msg):
 		global dev
 		mqtt_state = msg.payload.decode()
@@ -216,17 +223,21 @@ def client_connect(client, device, mqtt_topic, onoff_bool, publish_as_json):
 	global dev
 	host = device["host"]
 	jsonfeatures = device.get("features", None)
+	hc2mqtt_conf = device["hc2mqtt"]
+	publish_homie_topics = hc2mqtt_conf["publish_homie_topics"]
+	publish_as_json = hc2mqtt_conf["publish_as_json"]
+	publish_as_mqtt = hc2mqtt_conf["publish_as_mqtt"]
 
-	#expose Homie MQTT
-	publish_general("/$homie", "4.0.0")
-	publish_general("/$name", device["name"])
-	publish_general("/$state", "init")
-	client.will_set(mqtt_topic + "/$state", "lost", 1, True)
+	if (publish_homie_topics):
+		#expose Homie MQTT
+		publish_general("/$homie", "4.0.0")
+		publish_general("/$name", device["name"])
+		publish_general("/$state", "init")
+		client.will_set(mqtt_topic + "/$state", "lost", 1, True)
 	
 	nodes = ""
 	state = {}
 	features = {} #some definitions: feature = the json object of one feature; feature_name = Bosch.Setting.XXX; node_name = XXX
-	hc2mqtt_conf = device["hc2mqtt"]
 	if debugVerbose: print(now(), device["name"], f"hc2mqtt_conf: '{hc2mqtt_conf}'")
 	for uid in jsonfeatures:
 		feature = jsonfeatures[uid]
@@ -235,11 +246,11 @@ def client_connect(client, device, mqtt_topic, onoff_bool, publish_as_json):
 			node_name = getNodeName(uid, jsonfeatures, hc2mqtt_conf)
 			features[node_name] = (feature_name, uid)
 			nodes = nodes + node_name + "," 
-			expose_node_to_homie(feature, node_name)
+			if (publish_homie_topics): expose_node_to_homie(feature, node_name)
 			state[node_name] = None
 
 	nodes = nodes[:-1] #remove last comma
-	publish_general("/$nodes", nodes)
+	if (publish_homie_topics): publish_general("/$nodes", nodes)
 
 	if publish_as_json:
 		mqtt_set_topic = mqtt_topic + "/state/set"
@@ -254,7 +265,7 @@ def client_connect(client, device, mqtt_topic, onoff_bool, publish_as_json):
 
 			#ws.debug = True
 			ws.reconnect()
-			publish_general("/$state", "ready")
+			if (publish_homie_topics): publish_general("/$state", "ready")
 
 			while True:
 				msg = dev.recv()
@@ -283,11 +294,11 @@ def client_connect(client, device, mqtt_topic, onoff_bool, publish_as_json):
 	
 					node_name = getNodeName(uid, jsonfeatures, hc2mqtt_conf)
 					if debugVerbose: print(now(), device["name"], f"hc2mqtt uid for '{node_name}' in msg = {msg[uid]}")
-					publish_single(node_name, value)
+					if publish_as_mqtt: publish_single(node_name, value)
 					state[node_name] = value
 					if node_name == "remaining":
 						value = "%d:%02d" % (value / 60 / 60, (value / 60) % 60)
-						publish_single("remainingseconds" ,value)
+						if publish_as_mqtt: publish_single("remainingseconds" ,value)
 						state["remainingseconds"] = value
 						
 					update = True
@@ -307,7 +318,7 @@ def client_connect(client, device, mqtt_topic, onoff_bool, publish_as_json):
 		time.sleep(5)
 	
 	#TODO: if program exit (does it reach here when aborted?)
-	publish_general("/$state", "lost")
+	if (publish_homie_topics): publish_general("/$state", "lost")
 	print(now(), f"Thread for {device['name']} exits.")
 	
 if __name__ == "__main__":
