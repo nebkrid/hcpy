@@ -53,16 +53,19 @@ hc2mqtt config.json
 
 This tool will establish websockets to the local devices and
 transform their messages into MQTT JSON messages.  
-Default for MQTT publishing is the [Homie MQTT Convention]{https://homieiot.github.io/specification/}. 
-This is useful for automatic detection in smart-home systems.
-Additionally publishing as one whole json can be chosen as a thin translation
-layer over the XML retrieved from cloud servers during the
-initial configuration.
-
-For renaming of the features you manually have to add a json entry "hc2mqtt" like this one inside your generated config file:
+You have to manually specify the MQTT settings "MQTT_CONF" in your generated config file (explanations see below).
+For renaming of the features of your device you also manually have to add a json entry "hc2mqtt" within the device:
 
 ```
 [
+    {
+		"name": "MQTT_CONF",
+		"host": "localhost",
+		"topic_prefix": "hc2mqtt/",
+		"port": 1883,
+		"username": "",
+		"password": ""
+	},
     {
         "name":yourDishwasherName
 	"host":...
@@ -72,6 +75,9 @@ For renaming of the features you manually have to add a json entry "hc2mqtt" lik
 		...
     	},
         "hc2mqtt": {
+            "publish_as_json": true,
+            "publish_as_mqtt": true,
+            "publish_homie_topics": true,
             "rename": {
 				"default": "short",
 				"Dishcare.Dishwasher.Setting.ExtraDry": "ExtraDrySet"
@@ -90,13 +96,39 @@ For renaming of the features you manually have to add a json entry "hc2mqtt" lik
 	}
 ]
 ```
-In "rename" you can define the default naming behaviour for MQTT exposing ("short" ( = last part of the name), "long" or "uid") or specify explicit renaming for some features (overwrites default setting).
-In "publish" and "publish never" you can specify which features shall be or shall not be published to MQTT. With following priority:
+First add the MQTT_CONF block (just copy paste and adapt).
+If you want to use the [Homie MQTT Convention](https://homieiot.github.io/specification/) 
+for MQTT publishing and your e.g. smart home system can automatically detect Homie-devices, 
+you probably have to change ```"topic_prefix": "hc2mqtt/"``` to ```"topic_prefix": "homie/"``` for automatic detection. 
+
+Second, add the ```"hc2mqtt": {...}``` block within each of your devices. This block specifies which features are specified and how they are specified:
+- ```"publish_as_json":``` This is a thin translation layer over the XML retrieved from cloud servers during the initial configuration. It publishs one 
+json object containing all features in tshe MQTT topic <topic_prefix>/<yourDeviceName>/state (Use this for backwards compatibility. Otherwise you probably want one or both of the other options)
+- ```"publish_as_mqtt":``` This will publish the features as multiple MQTT topics, so that each feature has its own topic
+- ```"publish_homie_topics":``` Specify, if additional topics shall be published according to the Homie MQTT Convention (only applicable with "publish_as_mqtt_topics" set to True)
+
+Which features are actually published, are specified with ```"publish"``` and ```"publish_never"```. The following rule priority is defined:
 - feature name is exactly specified in long_names (individual names of features) in "publish" => publish
 - if not: long_names specified in "publish_never" => do not publish
 - if not: "publish_never" contains a substring of the feature name => publish not
 - if not: "publish" contains a substring of the feature name => publish
 - if not: => publish not.
+
+In ```"rename"``` you can define the default naming behaviour for MQTT exposing (```"short"``` ( = last part of the name), ```"long"``` or ```"uid"```) or specify explicit renaming for some features (overwrites default setting).
+
+Some Examples:
+1) With ```"publish_as_json": true, "publish_as_mqtt": false``` the above example will only publish ``` '{"ProgramFinished": "Off", "DoorState": "Closed", "WaterForecast": 45, "ExtraDrySet": false, [...]}' to 'hc2mqtt/yourDishwasherName/state'``` 
+2) With ```"publish_as_json": false, "publish_as_mqtt": true``` the above example will only publish ```'Off' to 'hc2mqtt/yourDishwasherName/ProgramFinished/value'``` and ```'Closed' to 'hc2mqtt/yourDishwasherName/DoorState/value'``` and ```'45' to 'hc2mqtt/yourDishwasherName/WaterForecast/value'``` and ```'False' to 'hc2mqtt/yourDishwasherName/ExtraDrySet/value'``` and so on for all features.
+3) With ```"publish_as_json": true, "publish_as_mqtt": true``` the above example will publish both from example 1) and 2)
+4) With additionally ```"publish_homie_topics": true``` the above example will also the "$-meta-data-topics" for homie like 
+	```
+	'BSH.Common.Status.DoorState' to 'homie/yourDishwasherName/DoorState/$name'
+	'type' to 'hc2mqtt/yourDishwasherName/DoorState/$type'
+	'value' to 'hc2mqtt/yourDishwasherName/DoorState/$properties'
+	'DoorState' to 'hc2mqtt/yourDishwasherName/DoorState/value/$name'
+	'enum' to 'hc2mqtt/yourDishwasherName/DoorState/value/$datatype'
+	'Open,Closed' to 'hc2mqtt/yourDishwasherName/DoorState/value/$format'
+	```
 
 ### Dishwasher
 
